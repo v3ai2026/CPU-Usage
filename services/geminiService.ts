@@ -6,7 +6,6 @@ import { BackendMode } from "../types";
  * Utility to strip markdown code blocks more robustly during streaming.
  */
 const sanitizeCode = (raw: string): string => {
-  // Removes opening and closing triple backticks even if partial
   let cleaned = raw.replace(/```(html|css|javascript|typescript|json)?/gi, '');
   cleaned = cleaned.replace(/```/g, '');
   return cleaned.trim();
@@ -22,8 +21,8 @@ export const generateWebComponentStream = async (
   base64Image?: string,
   useSearch: boolean = false
 ): Promise<{ code: string, sources?: any[] }> => {
+  // Always use process.env.API_KEY directly for initialization as per the @google/genai coding guidelines.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  // Coding tasks perform best on Pro models
   const modelName = 'gemini-3-pro-preview';
   
   const parts: any[] = [{ text: description }];
@@ -40,11 +39,19 @@ export const generateWebComponentStream = async (
     model: modelName,
     contents: { parts },
     config: {
-      systemInstruction: `You are a World-Class UI Architect and Frontend Developer. 
+      systemInstruction: `You are a World-Class Senior UI Architect. 
       Output ONLY pure HTML and Tailwind CSS code. 
-      DO NOT include markdown backticks like \`\`\`html. 
-      Ensure mobile responsiveness and high-end aesthetics.
-      If you use the search tool, incorporate the latest data into the content.`,
+      
+      IMPORTANT RULES FOR IMAGES:
+      1. DO NOT use local paths like 'logo.png' or 'hero.jpg'.
+      2. ALWAYS use high-quality, relevant image URLs from Unsplash (https://images.unsplash.com/photo-...).
+      3. For any graphic elements, use descriptive Unsplash keywords.
+      4. Ensure images have 'object-cover' and appropriate aspect ratios.
+      
+      General Rules:
+      - Use Lucide-like FontAwesome icons for UI elements.
+      - Ensure mobile responsiveness.
+      - Never include markdown backticks.`,
       tools: useSearch ? [{ googleSearch: {} }] : undefined,
     },
   });
@@ -53,6 +60,7 @@ export const generateWebComponentStream = async (
   let finalSources: any[] = [];
 
   for await (const chunk of responseStream) {
+    // Accessing the .text property directly instead of calling a method.
     const chunkText = chunk.text || '';
     fullText += chunkText;
     
@@ -74,6 +82,7 @@ export const generateWebComponentStream = async (
  * Perform Vision OCR extraction
  */
 export const performOCR = async (base64Image: string): Promise<string> => {
+  // Initialize with the environment variable directly.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
@@ -84,6 +93,7 @@ export const performOCR = async (base64Image: string): Promise<string> => {
       ]
     }
   });
+  // Use the .text property for extraction.
   return response.text || "No text detected.";
 };
 
@@ -94,6 +104,7 @@ export const generateImageVariation = async (
   base64Image: string,
   stylePrompt: string
 ): Promise<string> => {
+  // Initialize with the environment variable directly.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-image',
@@ -106,6 +117,7 @@ export const generateImageVariation = async (
     config: { imageConfig: { aspectRatio: "1:1" } }
   });
 
+  // Iterating through all parts to find the image part correctly.
   const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
   if (part?.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
   throw new Error("Visual variation failed.");

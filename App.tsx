@@ -14,24 +14,22 @@ const INSPIRATION_CHIPS = [
 
 /**
  * High-performance Snow Overlay component using CSS animations
- * Now accepts density and speed props for customization
  */
-const SnowOverlay: React.FC<{ density: number; speed: number }> = ({ density, speed }) => {
+const SnowOverlay: React.FC<{ density: number; speed: number; enabled: boolean }> = ({ density, speed, enabled }) => {
   const snowflakes = useMemo(() => {
-    // Map 0-100 density to 0-120 particles
+    if (!enabled) return [];
     const count = Math.floor((density / 100) * 120);
     return Array.from({ length: count }).map((_, i) => ({
       id: i,
       left: `${Math.random() * 100}%`,
       size: `${Math.random() * 3 + 1}px`,
-      // Base duration 10-20s, divided by speed (1.0 is normal, 2.0 is fast)
       duration: `${(Math.random() * 10 + 10) / speed}s`,
-      delay: `${Math.random() * -20}s`, // Negative delay for immediate start
+      delay: `${Math.random() * -20}s`,
       opacity: Math.random() * 0.3 + 0.05
     }));
-  }, [density, speed]);
+  }, [density, speed, enabled]);
 
-  if (density === 0) return null;
+  if (!enabled || density === 0) return null;
 
   return (
     <div className="snow-overlay">
@@ -57,8 +55,10 @@ const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.CANVAS);
   const [backendMode] = useState<BackendMode>('cloud-api');
   const [useSearch, setUseSearch] = useState(false);
+  const [isApiKeyMissing, setIsApiKeyMissing] = useState(false);
   
   // Scene Settings
+  const [snowEnabled, setSnowEnabled] = useState(true);
   const [snowDensity, setSnowDensity] = useState(30);
   const [snowSpeed, setSnowSpeed] = useState(1.0);
 
@@ -88,17 +88,32 @@ const App: React.FC = () => {
   const [streamingCode, setStreamingCode] = useState<string>('');
   const [currentSources, setCurrentSources] = useState<any[]>([]);
   const [copied, setCopied] = useState(false);
+  
+  // Drag and Drop State
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    scene: false,
+    scene: true,
     imaging: true,
     remix: true,
     variants: true,
     logic: true,
-    timeline: false
+    timeline: false,
+    grounding: true
   });
 
   const elementsRef = useRef(elements);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Check if API key is correctly configured via define plugin in vite.config.ts
+    const key = process.env.API_KEY;
+    if (!key || key === 'undefined' || key === '') {
+      setIsApiKeyMissing(true);
+    }
+  }, []);
 
   useEffect(() => {
     elementsRef.current = elements;
@@ -106,6 +121,55 @@ const App: React.FC = () => {
   }, [elements]);
 
   const selectedElement = elements.find(el => el.id === selectedId);
+
+  // Drag Handlers
+  const handleMouseDown = (e: React.MouseEvent, id: string) => {
+    if (previewMode) return;
+    const el = elements.find(item => item.id === id);
+    if (!el) return;
+
+    setSelectedId(id);
+    setDraggingId(id);
+    
+    const posX = el.position?.x || 0;
+    const posY = el.position?.y || 0;
+    
+    setDragOffset({
+      x: e.clientX - posX,
+      y: e.clientY - posY
+    });
+    
+    // Prevent text selection during drag
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!draggingId) return;
+      
+      const newX = e.clientX - dragOffset.x;
+      const newY = e.clientY - dragOffset.y;
+      
+      setElements(prev => prev.map(el => 
+        el.id === draggingId 
+          ? { ...el, position: { x: newX, y: newY } } 
+          : el
+      ));
+    };
+
+    const handleMouseUp = () => {
+      setDraggingId(null);
+    };
+
+    if (draggingId) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [draggingId, dragOffset]);
 
   const generateUI = async (isRefining: boolean = false, overridePrompt?: string) => {
     const targetPrompt = overridePrompt || prompt;
@@ -122,7 +186,7 @@ const App: React.FC = () => {
         backendMode,
         (chunk, sources) => {
             setStreamingCode(chunk);
-            if (sources) setCurrentSources(sources);
+            if (sources && sources.length > 0) setCurrentSources(sources);
         },
         selectedElement?.imageData,
         useSearch
@@ -146,6 +210,11 @@ const App: React.FC = () => {
         }));
       } else {
         const newId = Math.random().toString(36).substr(2, 9);
+        // Staggered positioning
+        const spacing = 40;
+        const initialX = spacing + (elements.length * 20);
+        const initialY = 100 + (elements.length * 60);
+
         const newEl: UIElement = {
           id: newId,
           name: `comp-${elements.length + 1}`,
@@ -157,7 +226,8 @@ const App: React.FC = () => {
           visible: true,
           codeVariations: [],
           imageData: selectedElement?.imageData,
-          analysis: finalSources ? JSON.stringify(finalSources) : undefined
+          analysis: finalSources ? JSON.stringify(finalSources) : undefined,
+          position: { x: initialX, y: initialY }
         };
         setElements(prev => [newEl, ...prev]);
         setSelectedId(newId);
@@ -193,7 +263,8 @@ const App: React.FC = () => {
           selected: false,
           visible: true,
           imageData: base64,
-          codeVariations: []
+          codeVariations: [],
+          position: { x: 100, y: 100 }
         };
         setElements(prev => [newEl, ...prev]);
         setSelectedId(newId);
@@ -244,24 +315,24 @@ const App: React.FC = () => {
   }> = ({ id, title, statusColor, children }) => {
     const isOpen = openSections[id];
     return (
-      <div className="border-b border-zinc-900 last:border-b-0">
+      <div className="border-b border-zinc-900/50 last:border-b-0">
         <button 
           onClick={() => setOpenSections(prev => ({...prev, [id]: !prev[id]}))}
-          className="w-full flex items-center justify-between p-5 hover:bg-zinc-900/40 transition-all group"
+          className="w-full flex items-center justify-between p-4 hover:bg-zinc-900/30 transition-all group"
         >
-          <div className="flex items-center gap-3">
-            <div className={`w-1.5 h-1.5 rounded-full ${statusColor || 'bg-zinc-600'}`}></div>
-            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest group-hover:text-zinc-300 transition-colors">{title}</span>
+          <div className="flex items-center gap-2.5">
+            <div className={`w-1 h-1 rounded-full ${statusColor || 'bg-zinc-800'}`}></div>
+            <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-[0.15em] group-hover:text-zinc-400 transition-colors">{title}</span>
           </div>
-          <i className={`fas fa-chevron-down text-[10px] text-zinc-700 transition-transform ${isOpen ? '' : '-rotate-90'}`}></i>
+          <i className={`fas fa-chevron-right text-[8px] text-zinc-800 transition-transform ${isOpen ? 'rotate-90' : ''}`}></i>
         </button>
-        {isOpen && <div className="px-5 pb-6 space-y-5 animate-in fade-in slide-in-from-top-1">{children}</div>}
+        {isOpen && <div className="px-4 pb-5 space-y-4 animate-in fade-in slide-in-from-top-1">{children}</div>}
       </div>
     );
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#020202] text-zinc-100 overflow-hidden selection:bg-blue-500/30">
+    <div className={`h-screen w-screen flex flex-col bg-[#020202] text-zinc-100 overflow-hidden selection:bg-blue-500/30 ${draggingId ? 'cursor-grabbing' : ''}`}>
       <header className="h-[68px] border-b border-zinc-900 flex items-center justify-between px-8 bg-black/40 backdrop-blur-md z-[100] shrink-0">
         <div className="flex items-center gap-10">
           <div className="flex items-center gap-3 group">
@@ -281,39 +352,40 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-6">
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-widest ${isApiKeyMissing ? 'bg-red-500/5 border-red-500/20 text-red-500/70' : 'bg-green-500/5 border-green-500/20 text-green-500/70'}`}>
+             <i className={`fas ${isApiKeyMissing ? 'fa-unlink' : 'fa-link'}`}></i>
+             {isApiKeyMissing ? 'Disconnected' : 'Engine Live'}
+          </div>
+
           <div className="flex bg-zinc-900/50 p-1 rounded-xl border border-zinc-800/50">
              <button onClick={() => setViewport('desktop')} className={`w-10 h-9 flex items-center justify-center rounded-lg transition-all ${viewport === 'desktop' ? 'bg-zinc-800 text-white shadow-inner' : 'text-zinc-600 hover:text-zinc-400'}`}><i className="fas fa-desktop text-xs"></i></button>
              <button onClick={() => setViewport('mobile')} className={`w-10 h-9 flex items-center justify-center rounded-lg transition-all ${viewport === 'mobile' ? 'bg-zinc-800 text-white shadow-inner' : 'text-zinc-600 hover:text-zinc-400'}`}><i className="fas fa-mobile-alt text-xs"></i></button>
           </div>
-          <button onClick={() => setPreviewMode(!previewMode)} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${previewMode ? 'bg-blue-600 text-white' : 'bg-zinc-900 text-zinc-400 border border-zinc-800'}`}>
-            {previewMode ? 'Exit Preview' : 'Preview Build'}
+          <button onClick={() => setPreviewMode(!previewMode)} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${previewMode ? 'bg-blue-600 text-white' : 'bg-zinc-900 text-zinc-500 border border-zinc-800 hover:text-zinc-300'}`}>
+            {previewMode ? 'Exit Preview' : 'Preview'}
           </button>
-          <div className="w-10 h-10 rounded-full border border-zinc-800 bg-zinc-900 flex items-center justify-center relative">
-             <i className="fas fa-user-shield text-zinc-500 text-sm"></i>
-             <div className="absolute top-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-black"></div>
-          </div>
         </div>
       </header>
 
       <div className="flex-1 flex overflow-hidden">
         {!previewMode && (
-          <aside className="w-[280px] border-r border-zinc-900 flex flex-col shrink-0 bg-[#050505]">
-            <div className="p-6 border-b border-zinc-900 flex items-center justify-between">
-              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Active Layers</span>
-              <button onClick={() => setElements([])} className="text-zinc-700 hover:text-red-500 transition-colors"><i className="fas fa-trash-alt text-xs"></i></button>
+          <aside className="w-[280px] border-r border-zinc-900/50 flex flex-col shrink-0 bg-[#050505]">
+            <div className="p-6 border-b border-zinc-900/50 flex items-center justify-between">
+              <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Active Layers</span>
+              <button onClick={() => setElements([])} className="text-zinc-800 hover:text-red-900 transition-colors"><i className="fas fa-trash-alt text-[10px]"></i></button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
               {elements.length === 0 && (
-                <div className="py-20 text-center">
-                  <i className="fas fa-plus-circle text-zinc-800 text-3xl mb-4"></i>
-                  <p className="text-[9px] uppercase font-black text-zinc-800 tracking-widest">Workspace Empty</p>
+                <div className="py-20 text-center opacity-20">
+                  <i className="fas fa-plus-circle text-2xl mb-4"></i>
+                  <p className="text-[9px] uppercase font-black tracking-widest">Empty</p>
                 </div>
               )}
               {elements.map(el => (
-                <div key={el.id} onClick={() => setSelectedId(el.id)} className={`group px-4 py-3.5 rounded-xl cursor-pointer transition-all border ${selectedId === el.id ? 'bg-zinc-900 border-zinc-700 shadow-xl' : 'hover:bg-zinc-900/30 border-transparent'}`}>
-                  <div className="flex items-center gap-4">
-                    <div className={`w-2 h-2 rounded-full ${selectedId === el.id ? 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'bg-zinc-800'}`}></div>
-                    <span className={`text-[11px] font-bold truncate ${selectedId === el.id ? 'text-white' : 'text-zinc-500'}`}>{el.name}</span>
+                <div key={el.id} onClick={() => setSelectedId(el.id)} className={`group px-4 py-3 rounded-xl cursor-pointer transition-all border ${selectedId === el.id ? 'bg-zinc-900 border-zinc-800' : 'hover:bg-zinc-900/30 border-transparent'}`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-1.5 h-1.5 rounded-full ${selectedId === el.id ? 'bg-blue-500' : 'bg-zinc-800'}`}></div>
+                    <span className={`text-[10px] font-bold truncate ${selectedId === el.id ? 'text-zinc-100' : 'text-zinc-600'}`}>{el.name}</span>
                   </div>
                 </div>
               ))}
@@ -321,39 +393,59 @@ const App: React.FC = () => {
           </aside>
         )}
 
-        <main className="flex-1 relative bg-black canvas-grid overflow-auto custom-scrollbar flex flex-col items-center">
-          {/* Background Snow Layer */}
-          <SnowOverlay density={snowDensity} speed={snowSpeed} />
+        <main 
+          ref={canvasRef}
+          className="flex-1 relative bg-black canvas-grid overflow-auto custom-scrollbar"
+        >
+          <SnowOverlay enabled={snowEnabled} density={snowDensity} speed={snowSpeed} />
           
           <div className="absolute inset-0 bg-gradient-to-b from-blue-500/5 via-transparent to-transparent pointer-events-none"></div>
           
-          <div className={`relative z-10 transition-all duration-500 pt-12 pb-72 ${viewport === 'mobile' ? 'w-[375px]' : 'w-full max-w-5xl px-12'}`}>
-            <QuotaAlert error={error || undefined} onRetry={() => generateUI()} />
+          {/* Draggable Components Container */}
+          <div className={`relative min-h-[2000px] transition-all duration-500 ${viewport === 'mobile' ? 'max-w-[375px] mx-auto' : 'w-full'}`}>
+            {isApiKeyMissing && (
+               <div className="absolute top-8 left-12 right-12 p-5 bg-red-500/5 border border-red-500/10 rounded-2xl text-red-500/60 text-[10px] font-bold flex items-center gap-3 z-50">
+                 <i className="fas fa-shield-alt"></i>
+                 VITE_API_KEY required in environment for deployment.
+               </div>
+            )}
+            
+            <div className="absolute top-24 left-12 right-12 z-40">
+                <QuotaAlert error={error || undefined} onRetry={() => generateUI()} />
+            </div>
 
             {(loading || remixLoading) && streamingCode && (
-              <div className="mb-16 opacity-70 scale-[0.98] blur-[0.5px] transition-all">
+              <div className="absolute top-[300px] left-1/2 -translate-x-1/2 w-full max-w-4xl opacity-40 scale-[0.98] blur-[0.5px] transition-all z-30">
                 <div className="bg-white rounded-[2.5rem] overflow-hidden shadow-2xl" dangerouslySetInnerHTML={{ __html: streamingCode }} />
               </div>
             )}
 
             {elements.map(el => (
-              <div key={el.id} className="mb-16">
-                <div 
-                  onClick={() => setSelectedId(el.id)}
-                  className={`group relative rounded-[2.5rem] bg-white text-black overflow-hidden transition-all duration-300 cursor-pointer ${selectedId === el.id ? 'ring-2 ring-blue-500 shadow-[0_40px_80px_rgba(0,0,0,0.5),0_0_40px_rgba(59,130,246,0.2)] scale-[1.01]' : 'hover:scale-[1.005] hover:ring-1 hover:ring-zinc-700'}`}
-                >
-                  <div dangerouslySetInnerHTML={{ __html: el.code }} />
-                </div>
-                {el.analysis && (
-                  <div className="mt-6 flex flex-wrap gap-3 px-8">
-                     <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest block w-full mb-1">Citations & Grounding:</span>
-                     {JSON.parse(el.analysis).map((src: any, i: number) => src.web && (
-                        <a key={i} href={src.web.uri} target="_blank" className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950 border border-zinc-900 rounded-lg text-[9px] text-zinc-500 hover:text-white hover:border-zinc-700 transition-all">
-                          <i className="fas fa-link text-[8px]"></i>
-                          {src.web.title || 'Source Reference'}
-                        </a>
-                     ))}
-                  </div>
+              <div 
+                key={el.id} 
+                onMouseDown={(e) => handleMouseDown(e, el.id)}
+                style={{ 
+                    position: 'absolute', 
+                    left: el.position?.x || 48, 
+                    top: el.position?.y || 100,
+                    width: viewport === 'mobile' ? '375px' : 'auto',
+                    maxWidth: viewport === 'mobile' ? '375px' : 'calc(100% - 96px)',
+                    zIndex: selectedId === el.id ? 20 : 10,
+                    opacity: draggingId === el.id ? 0.7 : 1,
+                    transform: draggingId === el.id ? 'scale(1.02)' : 'scale(1)',
+                    pointerEvents: loading || remixLoading ? 'none' : 'auto'
+                }}
+                className={`group rounded-[2.5rem] bg-white text-black overflow-hidden transition-transform duration-200 cursor-grab active:cursor-grabbing ${selectedId === el.id ? 'ring-2 ring-blue-500/50 shadow-[0_40px_80px_rgba(0,0,0,0.8)]' : 'hover:ring-1 hover:ring-zinc-800'}`}
+              >
+                <div dangerouslySetInnerHTML={{ __html: el.code }} />
+                
+                {/* Drag Handle Overlay (Visible on Hover) */}
+                {!previewMode && (
+                   <div className="absolute inset-0 bg-blue-500/5 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity flex items-start justify-end p-6">
+                      <div className="w-8 h-8 rounded-full bg-black/80 flex items-center justify-center text-white/50">
+                         <i className="fas fa-arrows-alt text-xs"></i>
+                      </div>
+                   </div>
                 )}
               </div>
             ))}
@@ -361,177 +453,172 @@ const App: React.FC = () => {
 
           {!previewMode && (
             <div className="fixed bottom-12 left-1/2 -translate-x-1/2 w-full max-w-3xl px-6 z-[200]">
-              <div className="flex flex-wrap justify-center gap-2 mb-4 animate-in fade-in slide-in-from-bottom-2">
-                {INSPIRATION_CHIPS.map(chip => (
-                  <button 
-                    key={chip} 
-                    onClick={() => { setPrompt(chip); generateUI(false, chip); }}
-                    className="px-3 py-1 bg-zinc-900/50 border border-zinc-800 rounded-full text-[9px] font-bold text-zinc-500 hover:text-white hover:border-zinc-700 transition-all"
-                  >
-                    + {chip}
-                  </button>
-                ))}
-              </div>
-              <div className={`glass-panel rounded-3xl p-3 shadow-[0_30px_60px_rgba(0,0,0,0.8)] flex items-center gap-4 transition-all ${selectedId ? 'border-blue-500/40 ring-8 ring-blue-500/5' : ''}`}>
+              <div className={`glass-panel rounded-[2rem] p-3 shadow-[0_30px_60px_rgba(0,0,0,0.9)] flex items-center gap-4 transition-all ${selectedId ? 'border-blue-500/20' : 'border-zinc-900/50'}`}>
                 <button 
                   onClick={() => setUseSearch(!useSearch)}
-                  className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${useSearch ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20' : 'bg-zinc-900 text-zinc-600 hover:text-zinc-400'}`}
-                  title="Toggle Search Grounding"
+                  className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${useSearch ? 'bg-blue-600 text-white shadow-lg' : 'bg-zinc-900/50 text-zinc-700 hover:text-zinc-500'}`}
                 >
-                  <i className={`fas fa-satellite-dish text-sm ${useSearch ? 'animate-pulse' : ''}`}></i>
+                  <i className="fas fa-globe text-sm"></i>
                 </button>
                 <input 
                   value={prompt} 
                   onChange={(e) => setPrompt(e.target.value)} 
                   onKeyDown={(e) => e.key === 'Enter' && generateUI(!!selectedId)}
-                  placeholder={selectedId ? `Refine ${selectedElement?.name}...` : "Command the AI to build something extraordinary..."} 
-                  className="flex-1 bg-transparent border-none focus:outline-none text-[15px] text-zinc-100 font-medium py-2"
+                  placeholder={selectedId ? `Refine component...` : "Type to generate UI..."} 
+                  className="flex-1 bg-transparent border-none focus:outline-none text-[14px] text-zinc-300 font-medium py-2"
                 />
                 <button 
                   onClick={() => generateUI(!!selectedId)} 
                   disabled={loading || remixLoading || !prompt.trim()} 
-                  className={`h-12 px-8 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-3 disabled:opacity-20 ${selectedId ? 'bg-blue-600 text-white' : 'bg-white text-black hover:bg-zinc-200'}`}
+                  className={`h-12 px-8 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-3 disabled:opacity-20 ${selectedId ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-black hover:bg-white'}`}
                 >
-                  {loading ? <i className="fas fa-circle-notch animate-spin"></i> : <i className="fas fa-chevron-right"></i>}
-                  {selectedId ? 'Commit' : 'Deploy'}
+                  {loading ? <i className="fas fa-circle-notch animate-spin"></i> : <i className="fas fa-arrow-right"></i>}
+                  {selectedId ? 'Refine' : 'Generate'}
                 </button>
               </div>
             </div>
           )}
         </main>
 
-        {!previewMode && selectedId && (
-          <aside className="w-[360px] border-l border-zinc-900 bg-[#050505] flex flex-col z-50 overflow-y-auto custom-scrollbar">
-            <div className="p-6 border-b border-zinc-900 flex items-center justify-between bg-black">
-              <span className="text-[11px] font-black text-zinc-500 uppercase tracking-widest">Global Inspector</span>
-              <button onClick={() => setSelectedId(null)} className="text-zinc-700 hover:text-white transition-colors"><i className="fas fa-times text-xs"></i></button>
+        {!previewMode && (
+          <aside className="w-[340px] border-l border-zinc-900/50 bg-[#050505] flex flex-col z-50 overflow-y-auto custom-scrollbar">
+            <div className="p-6 border-b border-zinc-900/50 flex items-center justify-between bg-black">
+              <span className="text-[10px] font-black text-zinc-700 uppercase tracking-widest">Inspector</span>
+              {selectedId && <button onClick={() => setSelectedId(null)} className="text-zinc-800 hover:text-zinc-500"><i className="fas fa-times text-[10px]"></i></button>}
             </div>
             
-            <div className="flex-1 flex flex-col">
-              <InspectorSection id="scene" title="Scene Engine" statusColor="bg-blue-400">
-                <div className="space-y-6 pt-2">
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Snow Density</span>
-                      <span className="text-[10px] font-mono text-blue-400">{snowDensity}%</span>
-                    </div>
-                    <input 
-                      type="range" 
-                      min="0" max="100" 
-                      value={snowDensity} 
-                      onChange={(e) => setSnowDensity(parseInt(e.target.value))}
-                      className="w-full h-1.5 bg-zinc-900 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                    />
+            <div className="flex-1 flex flex-col divide-y divide-zinc-900/50">
+              <InspectorSection id="scene" title="Atmosphere" statusColor="bg-blue-900">
+                <div className="space-y-6 pt-1">
+                  <div className="flex items-center justify-between p-3 bg-zinc-950 rounded-xl border border-zinc-900/50">
+                    <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-wider">Snow Field</span>
+                    <button 
+                      onClick={() => setSnowEnabled(!snowEnabled)}
+                      className={`w-9 h-4.5 rounded-full transition-all relative ${snowEnabled ? 'bg-blue-600' : 'bg-zinc-900'}`}
+                    >
+                      <div className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-all ${snowEnabled ? 'left-5' : 'left-0.5'}`} />
+                    </button>
                   </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Drift Speed</span>
-                      <span className="text-[10px] font-mono text-blue-400">{snowSpeed.toFixed(1)}x</span>
+
+                  <div className={`space-y-6 transition-all duration-300 ${snowEnabled ? 'opacity-100' : 'opacity-20 pointer-events-none'}`}>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center px-1">
+                        <span className="text-[9px] font-bold text-zinc-700 uppercase tracking-widest">Density</span>
+                        <span className="text-[9px] font-mono text-zinc-500">{snowDensity}%</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="0" max="100" 
+                        value={snowDensity} 
+                        onChange={(e) => setSnowDensity(parseInt(e.target.value))}
+                        className="w-full h-1 bg-zinc-900 rounded-lg appearance-none cursor-pointer accent-blue-700"
+                      />
                     </div>
-                    <input 
-                      type="range" 
-                      min="0.1" max="3" step="0.1"
-                      value={snowSpeed} 
-                      onChange={(e) => setSnowSpeed(parseFloat(e.target.value))}
-                      className="w-full h-1.5 bg-zinc-900 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                    />
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center px-1">
+                        <span className="text-[9px] font-bold text-zinc-700 uppercase tracking-widest">Flow Speed</span>
+                        <span className="text-[9px] font-mono text-zinc-500">{snowSpeed.toFixed(1)}x</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="0.1" max="3" step="0.1"
+                        value={snowSpeed} 
+                        onChange={(e) => setSnowSpeed(parseFloat(e.target.value))}
+                        className="w-full h-1 bg-zinc-900 rounded-lg appearance-none cursor-pointer accent-blue-700"
+                      />
+                    </div>
                   </div>
                 </div>
               </InspectorSection>
 
-              <InspectorSection id="imaging" title="Visual Context" statusColor="bg-amber-500">
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  onChange={handleImageUpload} 
-                  className="hidden" 
-                  accept="image/*" 
-                />
-                
-                {selectedElement?.imageData ? (
-                  <div className="space-y-4">
-                    <div className="relative group rounded-2xl overflow-hidden aspect-video bg-zinc-900 border border-zinc-800">
-                      <img src={selectedElement.imageData} alt="Context" className="w-full h-full object-cover" />
-                      <button 
-                        onClick={() => fileInputRef.current?.click()}
-                        className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all text-[10px] font-black uppercase tracking-widest"
-                      >
-                        Change Image
+              {selectedId ? (
+                <>
+                  <InspectorSection id="imaging" title="Vision Reference" statusColor="bg-zinc-900">
+                    <input type="file" ref={fileInputRef} onChange={handleImageUpload} className="hidden" accept="image/*" />
+                    {selectedElement?.imageData ? (
+                      <div className="space-y-3">
+                        <div className="relative group rounded-xl overflow-hidden aspect-video bg-zinc-950 border border-zinc-900/50">
+                          <img src={selectedElement.imageData} alt="Context" className="w-full h-full object-cover opacity-50" />
+                          <button onClick={() => fileInputRef.current?.click()} className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all text-[8px] font-bold uppercase tracking-widest">Change</button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={runOCR} disabled={ocrLoading} className="py-2.5 px-3 bg-zinc-900/50 border border-zinc-800/50 rounded-lg text-[8px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-all flex items-center justify-center gap-2">
+                            {ocrLoading ? <i className="fas fa-spinner animate-spin"></i> : <i className="fas fa-font"></i>}
+                            Scan
+                          </button>
+                          <button onClick={runImageVariation} disabled={variationLoading} className="py-2.5 px-3 bg-zinc-900/50 border border-zinc-800/50 rounded-lg text-[8px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-all flex items-center justify-center gap-2">
+                            {variationLoading ? <i className="fas fa-spinner animate-spin"></i> : <i className="fas fa-wand-magic-sparkles"></i>}
+                            Vibe
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => fileInputRef.current?.click()} className="w-full py-10 border border-dashed border-zinc-900 rounded-xl flex flex-col items-center justify-center gap-3 hover:bg-zinc-900/20 transition-all">
+                        <i className="fas fa-camera text-zinc-800 text-lg"></i>
+                        <span className="text-[8px] font-bold text-zinc-700 uppercase tracking-widest">Upload Frame</span>
                       </button>
-                    </div>
+                    )}
+                  </InspectorSection>
+
+                  <InspectorSection id="variants" title="AI Mutator" statusColor="bg-zinc-900">
+                    <button onClick={() => generateUI(true)} disabled={loading} className="w-full py-3.5 rounded-xl bg-zinc-900/50 border border-zinc-800/50 text-zinc-500 text-[9px] font-bold uppercase tracking-widest hover:text-zinc-300 hover:border-zinc-700 transition-all flex items-center justify-center gap-2">
+                      {loading ? <i className="fas fa-spinner animate-spin"></i> : <i className="fas fa-redo"></i>}
+                      Mutate Code
+                    </button>
+                  </InspectorSection>
+
+                  <InspectorSection id="remix" title="Aesthetics" statusColor="bg-zinc-900">
                     <div className="grid grid-cols-2 gap-2">
-                      <button 
-                        onClick={runOCR}
-                        disabled={ocrLoading}
-                        className="py-3 px-4 bg-zinc-900 border border-zinc-800 rounded-xl text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white hover:border-zinc-700 transition-all flex items-center justify-center gap-2"
-                      >
-                        {ocrLoading ? <i className="fas fa-circle-notch animate-spin"></i> : <i className="fas fa-font"></i>}
-                        Scan Text
-                      </button>
-                      <button 
-                        onClick={runImageVariation}
-                        disabled={variationLoading}
-                        className="py-3 px-4 bg-zinc-900 border border-zinc-800 rounded-xl text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white hover:border-zinc-700 transition-all flex items-center justify-center gap-2"
-                      >
-                        {variationLoading ? <i className="fas fa-circle-notch animate-spin"></i> : <i className="fas fa-wand-magic-sparkles"></i>}
-                        Mutate
-                      </button>
+                        {['Glass', 'Bento', 'Minimal', 'Neon'].map(vibe => (
+                            <button key={vibe} onClick={() => generateUI(true, `Remix into ${vibe} style`)} className="p-4 bg-zinc-950 border border-zinc-900/50 rounded-xl text-[8px] font-bold uppercase tracking-widest text-zinc-700 hover:text-zinc-300 hover:border-zinc-700 transition-all">
+                              {vibe}
+                            </button>
+                        ))}
                     </div>
+                  </InspectorSection>
+
+                  {/* Rendering grounding sources to comply with mandatory search requirements */}
+                  {(currentSources.length > 0 || (selectedElement?.analysis && JSON.parse(selectedElement.analysis).length > 0)) && (
+                    <InspectorSection id="grounding" title="Research Sources" statusColor="bg-green-900">
+                      <div className="space-y-2">
+                        {(currentSources.length > 0 ? currentSources : JSON.parse(selectedElement?.analysis || '[]')).map((chunk: any, i: number) => {
+                          const web = chunk.web;
+                          if (!web) return null;
+                          return (
+                            <a 
+                              key={i}
+                              href={web.uri} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="block p-2 bg-zinc-900/50 border border-zinc-800 rounded-lg text-[8px] text-zinc-400 hover:text-blue-400 transition-colors truncate"
+                            >
+                              <i className="fas fa-external-link-alt mr-2 text-[6px]"></i>
+                              {web.title || web.uri}
+                            </a>
+                          );
+                        })}
+                      </div>
+                    </InspectorSection>
+                  )}
+
+                  <div className="p-4 mt-auto">
+                    <div className="flex items-center justify-between mb-4 px-1">
+                       <span className="text-[8px] font-bold text-zinc-700 uppercase">Coordinates</span>
+                       <span className="text-[8px] font-mono text-zinc-500">
+                         {Math.round(selectedElement?.position?.x || 0)}, {Math.round(selectedElement?.position?.y || 0)}
+                       </span>
+                    </div>
+                    <button onClick={copyCode} className="w-full py-4 bg-zinc-900/50 border border-zinc-800 text-zinc-400 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-zinc-800 hover:text-white transition-all">
+                      {copied ? 'Copied' : 'Copy Code'}
+                    </button>
                   </div>
-                ) : (
-                  <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full py-12 border-2 border-dashed border-zinc-800 rounded-2xl flex flex-col items-center justify-center gap-4 hover:border-zinc-700 hover:bg-zinc-900/20 transition-all group"
-                  >
-                    <i className="fas fa-cloud-upload-alt text-2xl text-zinc-800 group-hover:text-zinc-600 transition-colors"></i>
-                    <span className="text-[10px] font-black text-zinc-700 uppercase tracking-widest group-hover:text-zinc-500">Upload Reference</span>
-                  </button>
-                )}
-              </InspectorSection>
-
-              <InspectorSection id="variants" title="AI Variation Engine" statusColor="bg-blue-500">
-                <p className="text-[10px] text-zinc-600 mb-6 leading-relaxed uppercase font-bold tracking-tight">Experiment with automated visual mutations based on the primary prompt.</p>
-                <button 
-                  onClick={() => generateUI(true)}
-                  disabled={loading}
-                  className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl bg-gradient-to-br from-zinc-800 to-zinc-900 text-white text-[10px] font-black uppercase tracking-widest hover:border-zinc-700 border border-zinc-800 transition-all shadow-xl"
-                >
-                  {loading ? <i className="fas fa-spinner animate-spin"></i> : <i className="fas fa-sync-alt"></i>}
-                  Execute Mutation
-                </button>
-              </InspectorSection>
-
-              <InspectorSection id="remix" title="Aesthetic Presets" statusColor="bg-purple-500">
-                <div className="grid grid-cols-2 gap-3">
-                    {['Glassmorphism', 'Neo-Brutalism', 'Bento Grid', 'Cyber-Noir'].map(vibe => (
-                        <button
-                          key={vibe}
-                          onClick={() => { setPrompt(`Remix into ${vibe} style`); generateUI(true, `Remix this component into ${vibe} style`); }}
-                          className="flex flex-col items-center gap-3 p-5 bg-zinc-900/30 border border-zinc-800 rounded-2xl text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-white hover:border-zinc-600 transition-all"
-                        >
-                          <i className="fas fa-palette text-zinc-800"></i>
-                          {vibe}
-                        </button>
-                    ))}
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center opacity-10">
+                   <i className="fas fa-box-open text-4xl mb-4"></i>
+                   <p className="text-[8px] font-bold uppercase tracking-widest">Select Layer</p>
                 </div>
-              </InspectorSection>
-
-              <InspectorSection id="logic" title="Source & Control" statusColor="bg-emerald-500">
-                <button onClick={copyCode} className="w-full py-5 bg-zinc-100 text-black rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-white transition-all shadow-2xl active:scale-[0.98]">
-                  {copied ? 'Copied to Buffer' : 'Export Component'}
-                </button>
-              </InspectorSection>
-
-              <InspectorSection id="timeline" title="Version Snapshot">
-                <div className="space-y-3">
-                  {selectedElement?.codeVariations?.map((v, i) => (
-                    <div key={i} className="flex items-center justify-between p-4 bg-zinc-900/40 border border-zinc-800 rounded-xl group hover:border-zinc-700 transition-all">
-                       <span className="text-[10px] font-bold text-zinc-600 uppercase">Snapshot v.{selectedElement.codeVariations!.length - i}</span>
-                       <button onClick={() => setElements(prev => prev.map(el => el.id === selectedId ? {...el, code: v.code} : el))} className="text-[10px] font-black text-blue-500 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-all">RESTORE</button>
-                    </div>
-                  ))}
-                </div>
-              </InspectorSection>
+              )}
             </div>
           </aside>
         )}
