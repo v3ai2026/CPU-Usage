@@ -10,6 +10,17 @@ export type ViewportSize = 'mobile' | 'tablet' | 'desktop';
 export type BackendMode = 'local-vlm' | 'cloud-api';
 export type CanvasMode = 'stack' | 'freeform';
 
+export interface VariationRecord {
+    url: string;
+    prompt: string;
+}
+
+export interface CodeVariationRecord {
+    code: string;
+    style: string;
+    timestamp: Date;
+}
+
 export interface UIElement {
     id: string;
     name: string;
@@ -20,7 +31,8 @@ export interface UIElement {
     selected: boolean;
     visible: boolean;
     imageData?: string;
-    variations?: string[];
+    variations?: VariationRecord[];
+    codeVariations?: CodeVariationRecord[];
     analysis?: string;
     position?: { x: number; y: number };
 }

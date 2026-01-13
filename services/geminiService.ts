@@ -2,27 +2,26 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { BackendMode } from "../types";
 
-const getAIClient = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    throw new Error("API_KEY environment variable is missing.");
-  }
-  return new GoogleGenAI({ apiKey });
+/**
+ * Utility to strip markdown code blocks and return clean HTML/CSS
+ */
+const sanitizeCode = (raw: string): string => {
+  return raw.replace(/```html/gi, '').replace(/```/g, '').trim();
 };
 
 /**
- * 流式生成 UI 组件代码 - 支持双引擎
+ * Stream component generation with optional Google Search grounding
  */
 export const generateWebComponentStream = async (
   description: string, 
   mode: BackendMode, 
-  onChunk: (text: string) => void,
-  base64Image?: string
-): Promise<string> => {
-  const ai = getAIClient();
-  
-  // Local VLM 使用 Flash (快/轻), Cloud API 使用 Pro (强/稳)
-  const model = mode === 'local-vlm' ? 'gemini-3-flash-preview' : 'gemini-3-pro-preview';
+  onChunk: (text: string, sources?: any[]) => void,
+  base64Image?: string,
+  useSearch: boolean = false
+): Promise<{ code: string, sources?: any[] }> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // Coding tasks perform best on Pro models
+  const modelName = 'gemini-3-pro-preview';
   
   const parts: any[] = [{ text: description }];
   if (base64Image) {
@@ -35,106 +34,77 @@ export const generateWebComponentStream = async (
   }
 
   const responseStream = await ai.models.generateContentStream({
-    model,
+    model: modelName,
     contents: { parts },
     config: {
-      systemInstruction: mode === 'local-vlm' 
-        ? "You are a fast local VLM. Generate clean, minimal HTML/Tailwind. Be concise."
-        : "You are a professional Enterprise-grade Cloud UI Engineer. Generate high-quality, accessible, and responsive HTML/Tailwind code with modern design patterns.",
+      systemInstruction: `You are a World-Class UI Architect. 
+      Output ONLY pure HTML and Tailwind CSS code. 
+      DO NOT include markdown backticks. 
+      If you use the search tool to find information, incorporate that data into the component's content.
+      Ensure mobile responsiveness.`,
+      tools: useSearch ? [{ googleSearch: {} }] : undefined,
     },
   });
 
   let fullText = '';
+  let finalSources: any[] = [];
+
   for await (const chunk of responseStream) {
-    // Access .text property as it is a getter, not a method call
     const chunkText = chunk.text || '';
     fullText += chunkText;
-    onChunk(fullText);
+    
+    // Extract grounding chunks if search was used
+    const chunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    if (chunks) {
+        finalSources = chunks;
+    }
+
+    onChunk(sanitizeCode(fullText), finalSources);
   }
-  return fullText;
+
+  return { 
+    code: sanitizeCode(fullText), 
+    sources: finalSources 
+  };
 };
 
 /**
- * Generate a new image from a text prompt
+ * Perform Vision OCR extraction
  */
-export const generateImage = async (
-  prompt: string, 
-  aspectRatio: "1:1" | "4:3" | "3:4" | "16:9" | "9:16" = "1:1"
-): Promise<string> => {
-  const ai = getAIClient();
+export const performOCR = async (base64Image: string): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-image',
+    model: 'gemini-3-flash-preview',
     contents: {
-      parts: [{ text: prompt }]
-    },
-    config: {
-      imageConfig: { aspectRatio }
+      parts: [
+        { inlineData: { data: base64Image.split(',')[1] || base64Image, mimeType: 'image/png' } },
+        { text: "Extract all text from this UI design faithfully. Output only raw text content." }
+      ]
     }
   });
-
-  // Find the image part as per guidelines (do not assume first part)
-  const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
-  if (part?.inlineData) {
-    return `data:image/png;base64,${part.inlineData.data}`;
-  }
-  
-  throw new Error("Failed to generate image. Please try a different prompt.");
+  return response.text || "No text detected.";
 };
 
 /**
- * Generate variations of an existing image
+ * Image Variation with specific model
  */
 export const generateImageVariation = async (
   base64Image: string,
-  stylePrompt: string,
-  resolution: '1K' | '2K' = '1K'
+  stylePrompt: string
 ): Promise<string> => {
-  const ai = getAIClient();
-  // Use gemini-3-pro-image-preview for 2K requests, otherwise gemini-2.5-flash-image
-  const modelName = resolution === '2K' ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
-  
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
-    model: modelName,
+    model: 'gemini-2.5-flash-image',
     contents: {
       parts: [
-        {
-          inlineData: {
-            data: base64Image.split(',')[1] || base64Image,
-            mimeType: 'image/png'
-          }
-        },
-        {
-          text: `Create a professional visual variation of this image with the following style: ${stylePrompt}. Maintain the core objects and composition but transform the artistic direction and aesthetic details.`
-        }
+        { inlineData: { data: base64Image.split(',')[1] || base64Image, mimeType: 'image/png' } },
+        { text: `Re-style this image: ${stylePrompt}. Maintain composition but change aesthetic.` }
       ]
     },
-    config: {
-      imageConfig: resolution === '2K' ? { imageSize: '2K', aspectRatio: "1:1" } : { aspectRatio: "1:1" }
-    }
+    config: { imageConfig: { aspectRatio: "1:1" } }
   });
 
-  // Find the image part in the response
   const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
-  if (part?.inlineData) {
-    return `data:image/png;base64,${part.inlineData.data}`;
-  }
-  
-  throw new Error("The model did not return an image variation. Try a different style prompt.");
-};
-
-export const checkQuotaStatus = async (): Promise<{ status: string; details: string }> => {
-    try {
-        const ai = getAIClient();
-        await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: 'ping',
-            config: { 
-              maxOutputTokens: 1,
-              thinkingConfig: { thinkingBudget: 0 }
-            }
-        });
-        return { status: "Healthy", details: "Flux Core Online." };
-    } catch (error: any) {
-        return { status: "Error", details: error.message };
-    }
+  if (part?.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+  throw new Error("Visual variation failed.");
 };
