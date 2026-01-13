@@ -7,6 +7,8 @@ export enum AppView {
 }
 
 export type ViewportSize = 'mobile' | 'tablet' | 'desktop';
+export type BackendMode = 'local-vlm' | 'cloud-api';
+export type CanvasMode = 'stack' | 'freeform';
 
 export interface UIElement {
     id: string;
@@ -18,7 +20,9 @@ export interface UIElement {
     selected: boolean;
     visible: boolean;
     imageData?: string;
+    variations?: string[];
     analysis?: string;
+    position?: { x: number; y: number };
 }
 
 export interface LogEntry {

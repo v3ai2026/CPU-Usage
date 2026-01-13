@@ -1,5 +1,6 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
+import { BackendMode } from "../types";
 
 const getAIClient = () => {
   const apiKey = process.env.API_KEY;
@@ -10,16 +11,18 @@ const getAIClient = () => {
 };
 
 /**
- * 流式生成 UI 组件代码
+ * 流式生成 UI 组件代码 - 支持双引擎
  */
 export const generateWebComponentStream = async (
   description: string, 
-  isPro: boolean, 
+  mode: BackendMode, 
   onChunk: (text: string) => void,
   base64Image?: string
 ): Promise<string> => {
   const ai = getAIClient();
-  const model = isPro ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
+  
+  // Local VLM 使用 Flash (快/轻), Cloud API 使用 Pro (强/稳)
+  const model = mode === 'local-vlm' ? 'gemini-3-flash-preview' : 'gemini-3-pro-preview';
   
   const parts: any[] = [{ text: description }];
   if (base64Image) {
@@ -35,12 +38,15 @@ export const generateWebComponentStream = async (
     model,
     contents: { parts },
     config: {
-      systemInstruction: "You are a world-class UI designer and frontend engineer. Generate a single HTML block using Tailwind CSS (CDN version). If an image is provided, use it as a visual reference. Only return the raw HTML/Tailwind code, NO markdown code blocks, NO explanations. Ensure the UI is centered and has its own container if needed.",
+      systemInstruction: mode === 'local-vlm' 
+        ? "You are a fast local VLM. Generate clean, minimal HTML/Tailwind. Be concise."
+        : "You are a professional Enterprise-grade Cloud UI Engineer. Generate high-quality, accessible, and responsive HTML/Tailwind code with modern design patterns.",
     },
   });
 
   let fullText = '';
   for await (const chunk of responseStream) {
+    // Access .text property as it is a getter, not a method call
     const chunkText = chunk.text || '';
     fullText += chunkText;
     onChunk(fullText);
@@ -49,64 +55,71 @@ export const generateWebComponentStream = async (
 };
 
 /**
- * 基于现有图像生成变体
+ * Generate a new image from a text prompt
+ */
+export const generateImage = async (
+  prompt: string, 
+  aspectRatio: "1:1" | "4:3" | "3:4" | "16:9" | "9:16" = "1:1"
+): Promise<string> => {
+  const ai = getAIClient();
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash-image',
+    contents: {
+      parts: [{ text: prompt }]
+    },
+    config: {
+      imageConfig: { aspectRatio }
+    }
+  });
+
+  // Find the image part as per guidelines (do not assume first part)
+  const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
+  if (part?.inlineData) {
+    return `data:image/png;base64,${part.inlineData.data}`;
+  }
+  
+  throw new Error("Failed to generate image. Please try a different prompt.");
+};
+
+/**
+ * Generate variations of an existing image
  */
 export const generateImageVariation = async (
   base64Image: string,
   stylePrompt: string,
-  isPro: boolean,
-  resolution: "1K" | "2K" | "4K" = "1K"
+  resolution: '1K' | '2K' = '1K'
 ): Promise<string> => {
   const ai = getAIClient();
-  // Using Pro for variations if requested, otherwise Flash
-  const model = isPro ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
+  // Use gemini-3-pro-image-preview for 2K requests, otherwise gemini-2.5-flash-image
+  const modelName = resolution === '2K' ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
   
-  const imageData = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
-
   const response = await ai.models.generateContent({
-    model,
+    model: modelName,
     contents: {
       parts: [
         {
           inlineData: {
-            mimeType: 'image/png',
-            data: imageData,
-          },
+            data: base64Image.split(',')[1] || base64Image,
+            mimeType: 'image/png'
+          }
         },
         {
-          text: `Generate a variation of this image in the following style: ${stylePrompt}. Maintain the core composition but transform the aesthetic.`,
-        },
-      ],
-    },
-    config: isPro ? {
-      imageConfig: {
-        aspectRatio: "1:1",
-        imageSize: resolution
-      }
-    } : undefined
-  });
-
-  for (const part of response.candidates?.[0]?.content?.parts || []) {
-    if (part.inlineData) {
-      return `data:image/png;base64,${part.inlineData.data}`;
-    }
-  }
-
-  throw new Error("No image data returned from model variation request.");
-};
-
-export const analyzeImageOCR = async (base64Image: string): Promise<string> => {
-  const ai = getAIClient();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: {
-      parts: [
-        { text: "Act as an OCR specialist. Extract text and structural layout." },
-        { inlineData: { mimeType: 'image/png', data: base64Image.split(',')[1] || base64Image } }
+          text: `Create a professional visual variation of this image with the following style: ${stylePrompt}. Maintain the core objects and composition but transform the artistic direction and aesthetic details.`
+        }
       ]
+    },
+    config: {
+      imageConfig: resolution === '2K' ? { imageSize: '2K', aspectRatio: "1:1" } : { aspectRatio: "1:1" }
     }
   });
-  return response.text || "No text extracted.";
+
+  // Find the image part in the response
+  const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
+  if (part?.inlineData) {
+    return `data:image/png;base64,${part.inlineData.data}`;
+  }
+  
+  throw new Error("The model did not return an image variation. Try a different style prompt.");
 };
 
 export const checkQuotaStatus = async (): Promise<{ status: string; details: string }> => {
@@ -120,7 +133,7 @@ export const checkQuotaStatus = async (): Promise<{ status: string; details: str
               thinkingConfig: { thinkingBudget: 0 }
             }
         });
-        return { status: "Healthy", details: "Connected." };
+        return { status: "Healthy", details: "Flux Core Online." };
     } catch (error: any) {
         return { status: "Error", details: error.message };
     }
