@@ -1,15 +1,69 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppView, UIElement, ViewportSize, BackendMode, VariationRecord, CodeVariationRecord } from './types';
 import * as geminiService from './services/geminiService';
 import QuotaAlert from './components/QuotaAlert';
+
+const INSPIRATION_CHIPS = [
+  "SaaS Landing Page Hero",
+  "Crypto Portfolio Grid",
+  "AI Chat Interface",
+  "Apple-style Pricing Card",
+  "Modern Sidebar Navigation"
+];
+
+/**
+ * High-performance Snow Overlay component using CSS animations
+ * Now accepts density and speed props for customization
+ */
+const SnowOverlay: React.FC<{ density: number; speed: number }> = ({ density, speed }) => {
+  const snowflakes = useMemo(() => {
+    // Map 0-100 density to 0-120 particles
+    const count = Math.floor((density / 100) * 120);
+    return Array.from({ length: count }).map((_, i) => ({
+      id: i,
+      left: `${Math.random() * 100}%`,
+      size: `${Math.random() * 3 + 1}px`,
+      // Base duration 10-20s, divided by speed (1.0 is normal, 2.0 is fast)
+      duration: `${(Math.random() * 10 + 10) / speed}s`,
+      delay: `${Math.random() * -20}s`, // Negative delay for immediate start
+      opacity: Math.random() * 0.3 + 0.05
+    }));
+  }, [density, speed]);
+
+  if (density === 0) return null;
+
+  return (
+    <div className="snow-overlay">
+      {snowflakes.map(sf => (
+        <div 
+          key={sf.id} 
+          className="snowflake"
+          style={{
+            left: sf.left,
+            width: sf.size,
+            height: sf.size,
+            animationDuration: sf.duration,
+            animationDelay: sf.delay,
+            opacity: sf.opacity
+          }}
+        />
+      ))}
+    </div>
+  );
+};
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.CANVAS);
   const [backendMode] = useState<BackendMode>('cloud-api');
   const [useSearch, setUseSearch] = useState(false);
+  
+  // Scene Settings
+  const [snowDensity, setSnowDensity] = useState(30);
+  const [snowSpeed, setSnowSpeed] = useState(1.0);
+
   const [elements, setElements] = useState<UIElement[]>(() => {
-    const saved = localStorage.getItem('flux_studio_v1.1');
+    const saved = localStorage.getItem('flux_studio_v1.2');
     if (saved) {
       try {
         return JSON.parse(saved).map((el: any) => ({ 
@@ -25,6 +79,7 @@ const App: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
+  const [ocrLoading, setOcrLoading] = useState(false);
   const [variationLoading, setVariationLoading] = useState(false);
   const [remixLoading, setRemixLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +89,7 @@ const App: React.FC = () => {
   const [currentSources, setCurrentSources] = useState<any[]>([]);
   const [copied, setCopied] = useState(false);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    scene: false,
     imaging: true,
     remix: true,
     variants: true,
@@ -42,17 +98,19 @@ const App: React.FC = () => {
   });
 
   const elementsRef = useRef(elements);
-  const inspectorFileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     elementsRef.current = elements;
-    localStorage.setItem('flux_studio_v1.1', JSON.stringify(elements));
+    localStorage.setItem('flux_studio_v1.2', JSON.stringify(elements));
   }, [elements]);
 
   const selectedElement = elements.find(el => el.id === selectedId);
 
-  const generateUI = async (isRefining: boolean = false) => {
-    if (!prompt.trim()) return;
+  const generateUI = async (isRefining: boolean = false, overridePrompt?: string) => {
+    const targetPrompt = overridePrompt || prompt;
+    if (!targetPrompt.trim() && !selectedElement?.imageData) return;
+    
     setLoading(true);
     setError(null);
     setStreamingCode('');
@@ -60,7 +118,7 @@ const App: React.FC = () => {
     
     try {
       const result = await geminiService.generateWebComponentStream(
-        prompt,
+        targetPrompt || "Create a clean UI component based on this image",
         backendMode,
         (chunk, sources) => {
             setStreamingCode(chunk);
@@ -90,14 +148,15 @@ const App: React.FC = () => {
         const newId = Math.random().toString(36).substr(2, 9);
         const newEl: UIElement = {
           id: newId,
-          name: `component-${elements.length + 1}`,
+          name: `comp-${elements.length + 1}`,
           type: 'custom',
           code: finalCode,
-          prompt: prompt,
+          prompt: targetPrompt,
           timestamp: new Date(),
           selected: false,
           visible: true,
           codeVariations: [],
+          imageData: selectedElement?.imageData,
           analysis: finalSources ? JSON.stringify(finalSources) : undefined
         };
         setElements(prev => [newEl, ...prev]);
@@ -113,10 +172,59 @@ const App: React.FC = () => {
     }
   };
 
-  const clearCanvas = () => {
-    if (confirm("Clear your creative workspace?")) {
-      setElements([]);
-      setSelectedId(null);
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      if (selectedId) {
+        setElements(prev => prev.map(el => el.id === selectedId ? { ...el, imageData: base64 } : el));
+      } else {
+        const newId = 'temp-' + Math.random().toString(36).substr(2, 9);
+        const newEl: UIElement = {
+          id: newId,
+          name: 'Image Context',
+          type: 'custom',
+          code: '<div class="p-8 text-center text-zinc-500 border-2 border-dashed border-zinc-800 rounded-3xl">Waiting for prompt with image context...</div>',
+          prompt: 'Image uploaded',
+          timestamp: new Date(),
+          selected: false,
+          visible: true,
+          imageData: base64,
+          codeVariations: []
+        };
+        setElements(prev => [newEl, ...prev]);
+        setSelectedId(newId);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const runOCR = async () => {
+    if (!selectedElement?.imageData) return;
+    setOcrLoading(true);
+    try {
+      const text = await geminiService.performOCR(selectedElement.imageData);
+      setPrompt(prev => prev ? `${prev}\n\nExtracted Text:\n${text}` : `Build a component using this text: ${text}`);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+
+  const runImageVariation = async () => {
+    if (!selectedElement?.imageData) return;
+    setVariationLoading(true);
+    try {
+      const newImage = await geminiService.generateImageVariation(selectedElement.imageData, prompt || "Creative variation");
+      setElements(prev => prev.map(el => el.id === selectedId ? { ...el, imageData: newImage } : el));
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setVariationLoading(false);
     }
   };
 
@@ -154,16 +262,15 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#020202] text-zinc-100 overflow-hidden selection:bg-blue-500/30">
-      {/* Dynamic Header */}
       <header className="h-[68px] border-b border-zinc-900 flex items-center justify-between px-8 bg-black/40 backdrop-blur-md z-[100] shrink-0">
         <div className="flex items-center gap-10">
           <div className="flex items-center gap-3 group">
-            <div className="w-10 h-10 bg-white rounded-[12px] flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.1)] group-hover:scale-105 transition-transform">
+            <div className="w-10 h-10 bg-white rounded-[12px] flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.1)] group-hover:rotate-12 transition-transform">
               <i className="fas fa-bolt text-black text-sm"></i>
             </div>
             <div>
               <span className="text-sm font-black tracking-tight block">GEMINI FLUX</span>
-              <span className="text-[9px] text-zinc-600 uppercase font-bold tracking-[0.2em]">Studio Edition</span>
+              <span className="text-[9px] text-zinc-600 uppercase font-bold tracking-[0.2em]">Studio v1.2</span>
             </div>
           </div>
           
@@ -189,12 +296,11 @@ const App: React.FC = () => {
       </header>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Layer Manager */}
         {!previewMode && (
           <aside className="w-[280px] border-r border-zinc-900 flex flex-col shrink-0 bg-[#050505]">
             <div className="p-6 border-b border-zinc-900 flex items-center justify-between">
               <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Active Layers</span>
-              <button onClick={clearCanvas} className="text-zinc-700 hover:text-red-500 transition-colors"><i className="fas fa-trash-alt text-xs"></i></button>
+              <button onClick={() => setElements([])} className="text-zinc-700 hover:text-red-500 transition-colors"><i className="fas fa-trash-alt text-xs"></i></button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
               {elements.length === 0 && (
@@ -215,23 +321,18 @@ const App: React.FC = () => {
           </aside>
         )}
 
-        {/* Studio Canvas */}
         <main className="flex-1 relative bg-black canvas-grid overflow-auto custom-scrollbar flex flex-col items-center">
+          {/* Background Snow Layer */}
+          <SnowOverlay density={snowDensity} speed={snowSpeed} />
+          
           <div className="absolute inset-0 bg-gradient-to-b from-blue-500/5 via-transparent to-transparent pointer-events-none"></div>
           
-          <div className={`transition-all duration-500 pt-12 pb-60 ${viewport === 'mobile' ? 'w-[375px]' : 'w-full max-w-5xl px-12'}`}>
+          <div className={`relative z-10 transition-all duration-500 pt-12 pb-72 ${viewport === 'mobile' ? 'w-[375px]' : 'w-full max-w-5xl px-12'}`}>
             <QuotaAlert error={error || undefined} onRetry={() => generateUI()} />
 
             {(loading || remixLoading) && streamingCode && (
               <div className="mb-16 opacity-70 scale-[0.98] blur-[0.5px] transition-all">
                 <div className="bg-white rounded-[2.5rem] overflow-hidden shadow-2xl" dangerouslySetInnerHTML={{ __html: streamingCode }} />
-                {currentSources.length > 0 && (
-                  <div className="mt-4 flex flex-wrap gap-2 px-6">
-                    {currentSources.map((src, i) => src.web && (
-                      <span key={i} className="px-2 py-1 bg-zinc-900 border border-zinc-800 rounded text-[9px] text-zinc-500 truncate max-w-[120px]">{src.web.title}</span>
-                    ))}
-                  </div>
-                )}
               </div>
             )}
 
@@ -258,9 +359,19 @@ const App: React.FC = () => {
             ))}
           </div>
 
-          {/* Commander Prompt Interface */}
           {!previewMode && (
             <div className="fixed bottom-12 left-1/2 -translate-x-1/2 w-full max-w-3xl px-6 z-[200]">
+              <div className="flex flex-wrap justify-center gap-2 mb-4 animate-in fade-in slide-in-from-bottom-2">
+                {INSPIRATION_CHIPS.map(chip => (
+                  <button 
+                    key={chip} 
+                    onClick={() => { setPrompt(chip); generateUI(false, chip); }}
+                    className="px-3 py-1 bg-zinc-900/50 border border-zinc-800 rounded-full text-[9px] font-bold text-zinc-500 hover:text-white hover:border-zinc-700 transition-all"
+                  >
+                    + {chip}
+                  </button>
+                ))}
+              </div>
               <div className={`glass-panel rounded-3xl p-3 shadow-[0_30px_60px_rgba(0,0,0,0.8)] flex items-center gap-4 transition-all ${selectedId ? 'border-blue-500/40 ring-8 ring-blue-500/5' : ''}`}>
                 <button 
                   onClick={() => setUseSearch(!useSearch)}
@@ -289,7 +400,6 @@ const App: React.FC = () => {
           )}
         </main>
 
-        {/* Global Inspector */}
         {!previewMode && selectedId && (
           <aside className="w-[360px] border-l border-zinc-900 bg-[#050505] flex flex-col z-50 overflow-y-auto custom-scrollbar">
             <div className="p-6 border-b border-zinc-900 flex items-center justify-between bg-black">
@@ -298,6 +408,87 @@ const App: React.FC = () => {
             </div>
             
             <div className="flex-1 flex flex-col">
+              <InspectorSection id="scene" title="Scene Engine" statusColor="bg-blue-400">
+                <div className="space-y-6 pt-2">
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Snow Density</span>
+                      <span className="text-[10px] font-mono text-blue-400">{snowDensity}%</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0" max="100" 
+                      value={snowDensity} 
+                      onChange={(e) => setSnowDensity(parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-zinc-900 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Drift Speed</span>
+                      <span className="text-[10px] font-mono text-blue-400">{snowSpeed.toFixed(1)}x</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0.1" max="3" step="0.1"
+                      value={snowSpeed} 
+                      onChange={(e) => setSnowSpeed(parseFloat(e.target.value))}
+                      className="w-full h-1.5 bg-zinc-900 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    />
+                  </div>
+                </div>
+              </InspectorSection>
+
+              <InspectorSection id="imaging" title="Visual Context" statusColor="bg-amber-500">
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  onChange={handleImageUpload} 
+                  className="hidden" 
+                  accept="image/*" 
+                />
+                
+                {selectedElement?.imageData ? (
+                  <div className="space-y-4">
+                    <div className="relative group rounded-2xl overflow-hidden aspect-video bg-zinc-900 border border-zinc-800">
+                      <img src={selectedElement.imageData} alt="Context" className="w-full h-full object-cover" />
+                      <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all text-[10px] font-black uppercase tracking-widest"
+                      >
+                        Change Image
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button 
+                        onClick={runOCR}
+                        disabled={ocrLoading}
+                        className="py-3 px-4 bg-zinc-900 border border-zinc-800 rounded-xl text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white hover:border-zinc-700 transition-all flex items-center justify-center gap-2"
+                      >
+                        {ocrLoading ? <i className="fas fa-circle-notch animate-spin"></i> : <i className="fas fa-font"></i>}
+                        Scan Text
+                      </button>
+                      <button 
+                        onClick={runImageVariation}
+                        disabled={variationLoading}
+                        className="py-3 px-4 bg-zinc-900 border border-zinc-800 rounded-xl text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white hover:border-zinc-700 transition-all flex items-center justify-center gap-2"
+                      >
+                        {variationLoading ? <i className="fas fa-circle-notch animate-spin"></i> : <i className="fas fa-wand-magic-sparkles"></i>}
+                        Mutate
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full py-12 border-2 border-dashed border-zinc-800 rounded-2xl flex flex-col items-center justify-center gap-4 hover:border-zinc-700 hover:bg-zinc-900/20 transition-all group"
+                  >
+                    <i className="fas fa-cloud-upload-alt text-2xl text-zinc-800 group-hover:text-zinc-600 transition-colors"></i>
+                    <span className="text-[10px] font-black text-zinc-700 uppercase tracking-widest group-hover:text-zinc-500">Upload Reference</span>
+                  </button>
+                )}
+              </InspectorSection>
+
               <InspectorSection id="variants" title="AI Variation Engine" statusColor="bg-blue-500">
                 <p className="text-[10px] text-zinc-600 mb-6 leading-relaxed uppercase font-bold tracking-tight">Experiment with automated visual mutations based on the primary prompt.</p>
                 <button 
@@ -315,7 +506,7 @@ const App: React.FC = () => {
                     {['Glassmorphism', 'Neo-Brutalism', 'Bento Grid', 'Cyber-Noir'].map(vibe => (
                         <button
                           key={vibe}
-                          onClick={() => setPrompt(`Remix into ${vibe} style`)}
+                          onClick={() => { setPrompt(`Remix into ${vibe} style`); generateUI(true, `Remix this component into ${vibe} style`); }}
                           className="flex flex-col items-center gap-3 p-5 bg-zinc-900/30 border border-zinc-800 rounded-2xl text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-white hover:border-zinc-600 transition-all"
                         >
                           <i className="fas fa-palette text-zinc-800"></i>

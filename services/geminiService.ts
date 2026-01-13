@@ -3,10 +3,13 @@ import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { BackendMode } from "../types";
 
 /**
- * Utility to strip markdown code blocks and return clean HTML/CSS
+ * Utility to strip markdown code blocks more robustly during streaming.
  */
 const sanitizeCode = (raw: string): string => {
-  return raw.replace(/```html/gi, '').replace(/```/g, '').trim();
+  // Removes opening and closing triple backticks even if partial
+  let cleaned = raw.replace(/```(html|css|javascript|typescript|json)?/gi, '');
+  cleaned = cleaned.replace(/```/g, '');
+  return cleaned.trim();
 };
 
 /**
@@ -37,11 +40,11 @@ export const generateWebComponentStream = async (
     model: modelName,
     contents: { parts },
     config: {
-      systemInstruction: `You are a World-Class UI Architect. 
+      systemInstruction: `You are a World-Class UI Architect and Frontend Developer. 
       Output ONLY pure HTML and Tailwind CSS code. 
-      DO NOT include markdown backticks. 
-      If you use the search tool to find information, incorporate that data into the component's content.
-      Ensure mobile responsiveness.`,
+      DO NOT include markdown backticks like \`\`\`html. 
+      Ensure mobile responsiveness and high-end aesthetics.
+      If you use the search tool, incorporate the latest data into the content.`,
       tools: useSearch ? [{ googleSearch: {} }] : undefined,
     },
   });
@@ -53,10 +56,9 @@ export const generateWebComponentStream = async (
     const chunkText = chunk.text || '';
     fullText += chunkText;
     
-    // Extract grounding chunks if search was used
-    const chunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    if (chunks) {
-        finalSources = chunks;
+    const groundingMetadata = chunk.candidates?.[0]?.groundingMetadata;
+    if (groundingMetadata?.groundingChunks) {
+        finalSources = groundingMetadata.groundingChunks;
     }
 
     onChunk(sanitizeCode(fullText), finalSources);
