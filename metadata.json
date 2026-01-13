@@ -1,0 +1,8 @@
+{
+  "name": "MODAMODA | AI Production Backend",
+  "description": "Enterprise-grade AI operations dashboard for fashion intelligence, featuring real-time vision processing and live audio consultation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
