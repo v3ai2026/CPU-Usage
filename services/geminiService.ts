@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { BackendMode, AIProvider } from "../types";
 
 /**
- * Strips markdown code blocks.
+ * Strips markdown code blocks and cleans up output.
  */
 const sanitizeCode = (raw: string): string => {
   let cleaned = raw.replace(/```(html|css|javascript|typescript|json)?/gi, '');
@@ -12,7 +12,7 @@ const sanitizeCode = (raw: string): string => {
 };
 
 /**
- * Universal Image Generator using Gemini-2.5-Flash-Image
+ * Image Generator for high-end fashion references.
  */
 export const generateImage = async (
   prompt: string,
@@ -22,12 +22,10 @@ export const generateImage = async (
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-image',
     contents: {
-      parts: [{ text: prompt }],
+      parts: [{ text: `High-end fashion editorial, cinematic lighting, luxury texture, minimalist aesthetic, avant-garde composition: ${prompt}` }],
     },
     config: {
-      imageConfig: {
-        aspectRatio,
-      },
+      imageConfig: { aspectRatio },
     },
   });
 
@@ -36,11 +34,11 @@ export const generateImage = async (
       return `data:image/png;base64,${part.inlineData.data}`;
     }
   }
-  throw new Error("No image data returned from model");
+  throw new Error("Visual synthesis failed.");
 };
 
 /**
- * Universal Stream Generator supporting both Gemini and OpenAI
+ * Web Component Streamer with a "Fashion Studio" Persona.
  */
 export const generateWebComponentStream = async (
   description: string, 
@@ -56,7 +54,6 @@ export const generateWebComponentStream = async (
     return generateOpenAIStream(description, onChunk, base64Image, modelName);
   }
 
-  // Gemini Implementation
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const parts: any[] = [{ text: description }];
   if (base64Image) {
@@ -72,12 +69,24 @@ export const generateWebComponentStream = async (
     model: modelName,
     contents: { parts },
     config: {
-      systemInstruction: `You are a Senior Silicon Valley UI Engineer. 
-      Generate a SINGLE high-quality, fully responsive UI component using HTML and Tailwind CSS.
-      Theme: Hyper-modern, minimalist, industrial-dark (zinc-900/950).
-      Use FontAwesome 6 icons.
-      DO NOT use markdown, return raw code only.
-      If a reference image is provided, replicate its layout and style exactly using Tailwind.`,
+      systemInstruction: `You are a visionary Creative Director for an elite fashion digital studio (like those behind Balenciaga, Saint Laurent, or Awwwards SOTD).
+
+      STRICT DESIGN PHILOSOPHY:
+      - ABSOLUTELY NO SIDEBARS, NO ADMIN DASHBOARDS, NO DATA TABLES. 
+      - Think "DIGITAL EDITORIAL". Your outputs should look like interactive luxury magazine covers.
+      - USE LARGE SCALE: Hero sections should use at least 80vh height. 
+      - TYPOGRAPHY: Focus on elegant serif headers or ultra-modern thin sans-serif. Use letter-spacing liberally.
+      - WHITE SPACE: Embrace the "void". Luxury is defined by the space you don't fill.
+      - OVERLAPS: Elements should float, overlap, and create depth.
+      - NARRATIVE FLOW: Design for scrolling experiences, not clicking navigation.
+      - COLORS: Monochromatic, Noir, or sophisticated muted earth tones.
+
+      TECHNOLOGY:
+      - Use ONLY Tailwind CSS and standard HTML5.
+      - Use FontAwesome 6 for very minimal, high-end iconography.
+      - Ensure smooth transitions and hover effects using Tailwind utilities.
+
+      Return ONLY the raw code for a single, complete web section or page. No explanation. No talk. Just pure aesthetic.`,
       tools: useSearch ? [{ googleSearch: {} }] : undefined,
     },
   });
@@ -100,7 +109,7 @@ export const generateWebComponentStream = async (
 };
 
 /**
- * OpenAI (OpenAPI) Fetch-based Streaming Implementation
+ * OpenAI Implementation with strict fashion logic.
  */
 async function generateOpenAIStream(
   prompt: string,
@@ -109,11 +118,10 @@ async function generateOpenAIStream(
   model: string = 'gpt-4o'
 ): Promise<{ code: string }> {
   const apiKey = (process.env as any).OPENAI_API_KEY || process.env.API_KEY; 
-  
   const messages: any[] = [
     { 
       role: 'system', 
-      content: 'You are a Senior UI Engineer. Generate ONLY the raw HTML/Tailwind code for the requested component. Dark industrial theme. No markdown.' 
+      content: 'You are a High-Fashion Creative Director. NEVER generate dashboards. Create high-end, artistic, minimalist editorial web layouts using Tailwind CSS. Think Vogue and Prada.' 
     }
   ];
 
@@ -135,14 +143,10 @@ async function generateOpenAIStream(
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`
     },
-    body: JSON.stringify({
-      model: model === 'gemini-3-flash-preview' ? 'gpt-4o-mini' : 'gpt-4o',
-      messages,
-      stream: true
-    })
+    body: JSON.stringify({ model: 'gpt-4o', messages, stream: true })
   });
 
-  if (!response.ok) throw new Error(`OpenAI API Error: ${response.statusText}`);
+  if (!response.ok) throw new Error(`OpenAI Connection Error.`);
 
   const reader = response.body?.getReader();
   const decoder = new TextDecoder();
@@ -151,10 +155,8 @@ async function generateOpenAIStream(
   while (reader) {
     const { done, value } = await reader.read();
     if (done) break;
-    
     const chunk = decoder.decode(value);
     const lines = chunk.split('\n').filter(line => line.trim() !== '');
-    
     for (const line of lines) {
       if (line.includes('[DONE]')) break;
       if (line.startsWith('data: ')) {

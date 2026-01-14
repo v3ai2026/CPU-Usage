@@ -7,19 +7,16 @@ export enum AppView {
 }
 
 export type AIProvider = 'gemini' | 'openai';
-export type ViewportSize = 'mobile' | 'tablet' | 'desktop';
-export type BackendMode = 'local-vlm' | 'cloud-api';
-export type CanvasMode = 'stack' | 'freeform';
 
-export interface VariationRecord {
+// Define BackendMode for service configuration
+export type BackendMode = 'cloud-api' | 'local-proxy';
+
+export interface AssetElement {
+    id: string;
     url: string;
     prompt: string;
-}
-
-export interface CodeVariationRecord {
-    code: string;
-    style: string;
     timestamp: Date;
+    type: 'model' | 'reference' | 'texture';
 }
 
 export interface UIElement {
@@ -32,15 +29,11 @@ export interface UIElement {
     selected: boolean;
     visible: boolean;
     imageData?: string;
-    variations?: VariationRecord[];
-    codeVariations?: CodeVariationRecord[];
-    analysis?: string;
     position?: { x: number; y: number };
 }
 
-export interface LogEntry {
-    id: string;
+export interface TranscriptionMessage {
+    role: 'user' | 'model';
+    text: string;
     timestamp: Date;
-    type: 'request' | 'success' | 'error' | 'info';
-    message: string;
 }

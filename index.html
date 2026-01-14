@@ -4,85 +4,70 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flux Core | Professional AI Component Studio</title>
+    <title>Flux Core v2.2 | AI Component Studio</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
         
+        :root {
+            --bg-base: #020202;
+            --accent-blue: #3b82f6;
+            --accent-emerald: #10b981;
+            --zinc-900: #18181b;
+            --zinc-950: #09090b;
+        }
+
         body {
-            font-family: 'Inter', 'Plus Jakarta Sans', sans-serif;
-            background-color: #000000;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-base);
             color: #fafafa;
             margin: 0;
             overflow: hidden;
-            letter-spacing: -0.011em;
+            letter-spacing: -0.01em;
         }
 
         .canvas-grid {
-            background-color: #020202;
             background-image: 
-                radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 0);
-            background-size: 32px 32px;
+                radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 0);
+            background-size: 40px 40px;
+            background-color: var(--bg-base);
         }
 
-        .snow-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 1;
-            overflow: hidden;
-        }
-
-        .snowflake {
-            position: absolute;
-            top: -10px;
-            background: white;
-            border-radius: 50%;
-            opacity: 0.15;
-            filter: blur(1px);
-            animation: fall linear infinite;
-        }
-
-        @keyframes fall {
-            0% { transform: translateY(-5vh) translateX(0) rotate(0deg); opacity: 0; }
-            10% { opacity: 0.2; }
-            90% { opacity: 0.2; }
-            100% { transform: translateY(110vh) translateX(40px) rotate(360deg); opacity: 0; }
-        }
-
-        .glass-panel {
-            background: rgba(8, 8, 8, 0.85);
-            backdrop-filter: blur(40px);
-            -webkit-backdrop-filter: blur(40px);
-            border: 1px solid rgba(255, 255, 255, 0.04);
-        }
-
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 3px; height: 3px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 20px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.1); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
 
-        @keyframes element-appear {
-            from { opacity: 0; transform: translateY(12px) scale(0.98); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
+        .glass {
+            background: rgba(9, 9, 11, 0.8);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
-        .canvas-grid > div > div { animation: element-appear 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
-        input::placeholder { color: #3f3f46; }
+        @keyframes pulse-soft {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+        .animate-pulse-soft { animation: pulse-soft 2s infinite ease-in-out; }
+
+        .layer-item {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .code-textarea {
+            font-family: 'JetBrains Mono', monospace;
+            tab-size: 2;
+        }
     </style>
-<script type="importmap">
+    <script type="importmap">
 {
   "imports": {
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/",
     "react": "https://esm.sh/react@^19.2.3",
     "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "vite": "https://esm.sh/vite@^7.3.1"
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
   }
 }
 </script>
