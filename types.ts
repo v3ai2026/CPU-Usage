@@ -6,6 +6,7 @@ export enum AppView {
     SETTINGS = 'SETTINGS'
 }
 
+export type AIProvider = 'gemini' | 'openai';
 export type ViewportSize = 'mobile' | 'tablet' | 'desktop';
 export type BackendMode = 'local-vlm' | 'cloud-api';
 export type CanvasMode = 'stack' | 'freeform';

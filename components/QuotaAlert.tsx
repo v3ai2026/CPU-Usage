@@ -9,35 +9,38 @@ interface QuotaAlertProps {
 const QuotaAlert: React.FC<QuotaAlertProps> = ({ error, onRetry }) => {
   if (!error) return null;
 
+  const isQuotaError = error.toLowerCase().includes("quota") || error.includes("429") || error.includes("exhausted");
+  const isAuthError = error.includes("not found") || error.includes("permission");
+
   return (
-    <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-6 mb-8 animate-pulse">
-      <div className="flex items-start gap-4">
-        <div className="bg-red-500 p-3 rounded-full">
-          <i className="fas fa-exclamation-triangle text-white"></i>
+    <div className="bg-zinc-950/90 backdrop-blur-2xl border border-amber-900/40 rounded-2xl p-6 mb-8 shadow-2xl animate-in fade-in slide-in-from-top-4">
+      <div className="flex items-start gap-5">
+        <div className="w-12 h-12 bg-amber-900/20 rounded-xl flex items-center justify-center shrink-0 border border-amber-500/20">
+          <i className={`fas ${isQuotaError ? 'fa-battery-empty' : 'fa-shield-halved'} text-amber-500 text-lg`}></i>
         </div>
         <div className="flex-1">
-          <h3 className="text-xl font-bold text-red-400 mb-2">Project Quota Issue Detected</h3>
-          <p className="text-slate-300 mb-4">
-            {error.includes("quota level not specified") 
-              ? "Your Google Cloud Project has not been assigned a Quota Tier. This typically happens when billing is not linked or the project is in a restricted state."
-              : error}
+          <h3 className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-2">Protocol Warning: {isQuotaError ? 'Resource Exhausted' : 'Auth Failed'}</h3>
+          <p className="text-[11px] leading-relaxed text-zinc-500 mb-5">
+            {isQuotaError 
+              ? "The current API Key has exhausted its throughput. Please wait 60 seconds or switch to a different Project Vault from the header."
+              : isAuthError 
+                ? "The selected Project Vault is invalid or missing required permissions. Please select another '钥匙' to continue."
+                : error}
           </p>
-          <div className="flex flex-wrap gap-4">
-            <a 
-              href="https://aistudio.google.com/app/plan_management" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md transition-colors flex items-center gap-2"
-            >
-              <i className="fas fa-external-link-alt"></i>
-              Manage Quota Tier
-            </a>
+          <div className="flex gap-3">
             <button 
               onClick={onRetry}
-              className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-md transition-colors"
+              className="px-5 py-2 bg-amber-500 text-black rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-amber-400 transition-all"
             >
-              Refresh Status
+              Retry Protocol
             </button>
+            <a 
+              href="https://ai.google.dev/gemini-api/docs/billing" 
+              target="_blank" 
+              className="px-5 py-2 bg-zinc-900 text-zinc-400 rounded-lg text-[9px] font-black uppercase tracking-widest hover:text-white transition-all border border-zinc-800"
+            >
+              Billing Docs
+            </a>
           </div>
         </div>
       </div>

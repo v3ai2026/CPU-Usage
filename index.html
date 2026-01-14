@@ -20,12 +20,12 @@
         }
 
         .canvas-grid {
+            background-color: #020202;
             background-image: 
-                radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 0);
-            background-size: 24px 24px;
+                radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 0);
+            background-size: 32px 32px;
         }
 
-        /* Studio Snow Effect */
         .snow-overlay {
             position: absolute;
             top: 0;
@@ -48,31 +48,31 @@
         }
 
         @keyframes fall {
-            0% { transform: translateY(-10vh) translateX(0) rotate(0deg); opacity: 0; }
+            0% { transform: translateY(-5vh) translateX(0) rotate(0deg); opacity: 0; }
             10% { opacity: 0.2; }
             90% { opacity: 0.2; }
-            100% { transform: translateY(110vh) translateX(50px) rotate(360deg); opacity: 0; }
+            100% { transform: translateY(110vh) translateX(40px) rotate(360deg); opacity: 0; }
         }
 
         .glass-panel {
-            background: rgba(10, 10, 10, 0.8);
-            backdrop-filter: blur(24px);
-            -webkit-backdrop-filter: blur(24px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(8, 8, 8, 0.85);
+            backdrop-filter: blur(40px);
+            -webkit-backdrop-filter: blur(40px);
+            border: 1px solid rgba(255, 255, 255, 0.04);
         }
 
-        .custom-scrollbar::-webkit-scrollbar { width: 3px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 20px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.1); }
 
         @keyframes element-appear {
-            from { opacity: 0; transform: translateY(8px); }
-            to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; transform: translateY(12px) scale(0.98); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
         }
-        .canvas-grid > div > div { animation: element-appear 0.3s ease-out forwards; }
+        .canvas-grid > div > div { animation: element-appear 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
-        input::placeholder { color: #52525b; }
+        input::placeholder { color: #3f3f46; }
     </style>
 <script type="importmap">
 {
